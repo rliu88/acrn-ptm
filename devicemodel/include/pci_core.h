@@ -36,6 +36,7 @@
 #include "types.h"
 #include "pcireg.h"
 #include "log.h"
+#include "pciaccess.h"
 
 #define	PCI_BARMAX	PCIR_MAX_BAR_0	/* BAR registers in a Type 0 header */
 #define	PCI_BDF(b, d, f) (((b & 0xFF) << 8) | ((d & 0x1F) << 3) | ((f & 0x7)))

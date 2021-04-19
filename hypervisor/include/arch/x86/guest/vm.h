@@ -26,6 +26,7 @@
 #include <cpu_caps.h>
 #include <e820.h>
 #include <vm_config.h>
+#include <vroot_port.h>
 #ifdef CONFIG_HYPERV_ENABLED
 #include <hyperv.h>
 #endif
@@ -129,6 +130,7 @@ struct acrn_vm {
 	uint16_t vm_id;		    /* Virtual machine identifier */
 	enum vm_state state;	/* VM state */
 	struct acrn_vuart vuart[MAX_VUART_NUM_PER_VM];		/* Virtual UART */
+	struct acrn_vroot_port vroot_ports[2];				/* virtual root port*/
 	enum vpic_wire_mode wire_mode;
 	struct iommu_domain *iommu;	/* iommu domain of this VM */
 	/* vm_state_lock used to protect vm/vcpu state transition,

@@ -119,6 +119,7 @@
 #define PCI_ECAP_ID(hdr)	((uint32_t)((hdr) & 0xFFFFU))
 #define PCI_ECAP_NEXT(hdr)	((uint32_t)(((hdr) >> 20U) & 0xFFCU))
 #define PCIZ_SRIOV		0x10U
+#define PCIZ_PTM 0x1fU
 
 /* SRIOV Definitions */
 #define PCI_SRIOV_CAP_LEN	0x40U
@@ -130,6 +131,14 @@
 #define PCIR_SRIOV_VF_DEV_ID	0x1AU
 #define PCIR_SRIOV_VF_BAR_OFF	0x24U
 #define PCIM_SRIOV_VF_ENABLE	0x1U
+
+/* PTM Definitions */
+#define PCI_PTM_CAP_LEN 0x04U
+#define PCIR_PTM_CAP 0x04U
+#define PCIR_PTM_CTRL 0x08U
+#define PCIM_PTM_CAP_ROOT_CAPABLE 0x4U
+#define PCIM_PTM_CTRL_ENABLED 0x1U
+#define PCIM_PTM_CTRL_ROOT_SELECTED 0x2U
 
 /* PCI Message Signalled Interrupts (MSI) */
 #define PCIR_MSI_CTRL         0x02U
@@ -181,6 +190,12 @@
 #define PCIM_PCIE_DEVCAP2_ARI (0x1U << 5U)
 #define PCIR_PCIE_DEVCTL2     0x28U
 #define PCIM_PCIE_DEVCTL2_ARI (0x1U << 5U)
+
+/* PCI Express Device Type definitions */
+#define        PCIER_FLAGS             0x2
+#define        PCIEM_FLAGS_TYPE                0x00F0
+#define        PCIEM_TYPE_ENDPOINT             0x0000
+#define        PCIEM_TYPE_ROOT_INT_EP          0x0090
 
 /* Conventional PCI Advanced Features Capability */
 #define PCIY_AF               0x13U
@@ -246,6 +261,19 @@ struct pci_sriov_cap {
 	bool hide_sriov;
 };
 
+struct pci_ptm{
+       uint32_t capoff;
+       uint32_t caplen;
+       bool is_capable; /* cap */
+       bool is_root_capable;
+       uint8_t local_granularity;
+       bool is_enabled;
+       bool is_root;
+       uint8_t effective_granularity;
+       union pci_bdf ptm_root_pbdf;
+};
+
+
 struct pci_pdev {
 	uint8_t hdr_type;
 	uint8_t base_class;
@@ -269,6 +297,9 @@ struct pci_pdev {
 
 	struct pci_msix_cap msix;
 	struct pci_sriov_cap sriov;
+	struct pci_ptm ptm;
+
+	struct pci_pdev* upstream;
 
 	bool has_pm_reset;
 	bool has_flr;
@@ -330,7 +361,7 @@ void set_mmcfg_region(struct pci_mmcfg_region *region);
 #endif
 struct pci_mmcfg_region *get_mmcfg_region(void);
 
-struct pci_pdev *init_pdev(uint16_t pbdf, uint32_t drhd_index);
+struct pci_pdev *init_pdev(uint16_t pbdf, uint32_t drhd_index, struct pci_pdev* upstream);
 uint32_t pci_pdev_read_cfg(union pci_bdf bdf, uint32_t offset, uint32_t bytes);
 void pci_pdev_write_cfg(union pci_bdf bdf, uint32_t offset, uint32_t bytes, uint32_t val);
 void enable_disable_pci_intx(union pci_bdf bdf, bool enable);

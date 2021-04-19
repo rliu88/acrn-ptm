@@ -119,12 +119,12 @@ def pci_dev_num_per_vm_gen(config):
             pci_vuart_num = pci_vuarts_num[vm_i]
             if shmem_enabled == 'y' and vm_i in shmem_num.keys():
                 shmem_num_i = shmem_num[vm_i]
-            num = shmem_num_i + pci_vuart_num
+            num = shmem_num_i + pci_vuart_num + 1
         elif "PRE_LAUNCHED_VM" == scenario_cfg_lib.VM_DB[vm_type]['load_type']:
             shmem_num_i = 0
             if shmem_enabled == 'y' and vm_i in shmem_num.keys():
                 shmem_num_i = shmem_num[vm_i]
-            num = pt_pci_num[vm_i] + shmem_num_i + pci_vuarts_num[vm_i]
+            num = pt_pci_num[vm_i] + shmem_num_i + pci_vuarts_num[vm_i] + 1
             if pt_pci_num[vm_i] > 0 or shmem_num_i > 0 or pci_vuarts_num[vm_i] > 0:
                 # if there is passthrough device or ivshmem, vhostbridge is needed
                 num += 1

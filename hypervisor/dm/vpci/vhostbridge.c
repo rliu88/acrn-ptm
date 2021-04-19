@@ -38,6 +38,7 @@
 #include <pci.h>
 #include "vpci_priv.h"
 #include <vacpi.h>
+#include <logmsg.h>
 
 /**
  * @pre vdev != NULL
@@ -87,6 +88,8 @@ static const uint32_t hostbridge_did_highbytes[] = {0x19U, 0x5aU, 0x59U, 0x3eU, 
 */
 static void init_vhostbridge(struct pci_vdev *vdev)
 {
+	pr_acrnlog("%s enter.\n", __func__);
+
 	union pci_bdf hostbridge_bdf = {.value = 0x0U};
 	uint32_t pciexbar_low = 0x0U, pciexbar_high = 0x0U, phys_did, i;
 	/* PCI config space */
@@ -135,6 +138,8 @@ static void init_vhostbridge(struct pci_vdev *vdev)
 	pci_vdev_write_vcfg(vdev, 0x64U, 4, pciexbar_high);
 	vdev->parent_user = NULL;
 	vdev->user = vdev;
+
+	pr_acrnlog("%s exit.\n", __func__);
 }
 
 static void deinit_vhostbridge(__unused struct pci_vdev *vdev)

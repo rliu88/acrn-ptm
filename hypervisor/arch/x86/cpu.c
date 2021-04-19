@@ -469,7 +469,7 @@ static void set_current_pcpu_id(uint16_t pcpu_id)
 
 static void print_hv_banner(void)
 {
-	const char *boot_msg = "ACRN Hypervisor\n\r";
+	const char *boot_msg = "ACRN Hypervisor release 2.3 - PTM\n\r";
 
 	/* Print the boot message */
 	printf(boot_msg);

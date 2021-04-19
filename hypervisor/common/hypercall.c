@@ -22,6 +22,7 @@
 #include <mmio_dev.h>
 #include <ivshmem.h>
 #include <vmcs9900.h>
+#include <vroot_port.h>
 #include <ptcm.h>
 
 #define DBG_LEVEL_HYCALL	6U
@@ -46,6 +47,7 @@ static struct emul_dev_ops emul_dev_ops_tbl[] = {
 	{(IVSHMEM_VENDOR_ID | (IVSHMEM_DEVICE_ID << 16U)), NULL, NULL},
 #endif
 	{(MCS9900_VENDOR | (MCS9900_DEV << 16U)), create_vmcs9900_vdev, destroy_vmcs9900_vdev},
+	{(VROOT_PORT_VENDOR | (VROOT_PORT_DEVICE << 16U)), create_vroot_port, destroy_vroot_port},
 };
 
 bool is_hypercall_from_ring0(void)
@@ -809,6 +811,7 @@ int32_t hcall_assign_pcidev(struct acrn_vm *vm, struct acrn_vm *target_vm, __unu
 	int32_t ret = -EINVAL;
 	struct acrn_assign_pcidev pcidev;
 
+	pr_acrnlog("%s enter.\n", __func__);
 	/* We should only assign a device to a post-launched VM at creating time for safety, not runtime or other cases*/
 	if (is_created_vm(target_vm)) {
 		if (copy_from_gpa(vm, &pcidev, param2, sizeof(pcidev)) == 0) {
@@ -817,7 +820,7 @@ int32_t hcall_assign_pcidev(struct acrn_vm *vm, struct acrn_vm *target_vm, __unu
 	} else {
 		pr_err("%s, vm[%d] is not a postlaunched VM, or not in CREATED status to be assigned with a pcidev\n", __func__, vm->vm_id);
 	}
-
+	pr_acrnlog("%s exit.\n", __func__);
 	return ret;
 }
 
@@ -1207,6 +1210,7 @@ int32_t hcall_add_vdev(struct acrn_vm *vm, struct acrn_vm *target_vm, __unused u
 	/* We should only create a device to a post-launched VM at creating time for safety, not runtime or other cases*/
 	if (is_created_vm(target_vm)) {
 		if (copy_from_gpa(vm, &dev, param2, sizeof(dev)) == 0) {
+			pr_acrnlog("%s: vendor_id=0x%x, device_id=0x%x.\n", __func__, dev.dev_id.fields.vendor_id, dev.dev_id.fields.device_id);
 			op = find_emul_dev_ops(&dev);
 			if ((op != NULL) && (op->create != NULL)) {
 				ret = op->create(target_vm, &dev);
@@ -1215,6 +1219,7 @@ int32_t hcall_add_vdev(struct acrn_vm *vm, struct acrn_vm *target_vm, __unused u
 	} else {
 		pr_err("%s, vm[%d] is not a postlaunched VM, or not in CREATED status to create a vdev\n", __func__, target_vm->vm_id);
 	}
+	pr_acrnlog("%s exit.\n", __func__);
 	return ret;
 }
 

@@ -34,6 +34,7 @@
 #define PCI_DEV_TYPE_PTDEV	(1U << 0U)
 #define PCI_DEV_TYPE_HVEMUL	(1U << 1U)
 #define PCI_DEV_TYPE_SOSEMUL	(1U << 2U)
+#define PCI_DEV_TYPE_VROOT_PORT	(1U << 3U)
 
 #define MAX_MMIO_DEV_NUM	2U
 
@@ -153,6 +154,7 @@ struct acrn_vm_pci_dev_config {
 	/* TODO: All device specific attributions need move to other place */
 	struct target_vuart t_vuart;
 	uint16_t vuart_idx;
+	uint16_t vroot_port_idx;
 	uint64_t vbar_base[PCI_BAR_COUNT];		/* vbar base address of PCI device, which is power-on default value */
 	struct pci_pdev *pdev;				/* the physical PCI device if it's a PT device */
 	const struct pci_vdev_ops *vdev_ops;		/* operations for PCI CFG read/write */

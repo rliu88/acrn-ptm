@@ -316,6 +316,8 @@ pci_parse_slot(char *opt)
 	if (parse_bdf(str, &bnum, &snum, &fnum, 10) != 0)
 		snum = -1;
 
+	pr_notice("%s: emul=%s, config=%s, b=%s, bnum=0x%x, snum=0x%x, fnum=0x%x.\n", __func__, emul, config, b==NULL?"NULL":b, bnum, snum, fnum);
+
 	if (bnum < 0 || bnum >= MAXBUSES || snum < 0 || snum >= MAXSLOTS ||
 	    fnum < 0 || fnum >= MAXFUNCS) {
 		pci_parse_slot_usage(opt);

@@ -219,8 +219,10 @@ void init_vpci(struct acrn_vm *vm)
 	struct pci_mmcfg_region *pci_mmcfg;
 
 	vm->iommu = create_iommu_domain(vm->vm_id, hva2hpa(vm->arch_vm.nworld_eptp), 48U);
+
 	/* Build up vdev list for vm */
 	vpci_init_vdevs(vm);
+	pr_acrnlog("init vdev for vm_id: %d done.\n", vm->vm_id);
 
 	vm_config = get_vm_config(vm->vm_id);
 	/* virtual PCI MMCONFIG for SOS is same with the physical value */
@@ -610,6 +612,7 @@ static int32_t vpci_write_cfg(struct acrn_vpci *vpci, union pci_bdf bdf,
  *
  * @return If there's a successfully initialized vdev structure return it, otherwise return NULL;
  */
+static struct pci_pdev *upstream = NULL;
 struct pci_vdev *vpci_init_vdev(struct acrn_vpci *vpci, struct acrn_vm_pci_dev_config *dev_config, struct pci_vdev *parent_pf_vdev)
 {
 	struct pci_vdev *vdev = &vpci->pci_vdevs[vpci->pci_vdev_cnt];
@@ -621,31 +624,92 @@ struct pci_vdev *vpci_init_vdev(struct acrn_vpci *vpci, struct acrn_vm_pci_dev_c
 	vdev->pci_dev_config = dev_config;
 	vdev->phyfun = parent_pf_vdev;
 
+	struct acrn_vm *vm = vpci2vm(vpci);
+
+	pr_acrnlog("%s: vm-id=%d, pci_vdev_cnt=%d.\n", __func__, vm->vm_id, vpci->pci_vdev_cnt);
+	if (vm->vm_id == 0)
+	{
+		pr_acrnlog("vbdf=%x:%x.%x, enum_type=%d.\n", dev_config->vbdf.bits.b, dev_config->vbdf.bits.d, dev_config->vbdf.bits.f, dev_config->emu_type);
+		//pr_acrnlog("pbdf=%x:%x.%x.\n", dev_config->pbdf.bits.b, dev_config->pbdf.bits.d, dev_config->pbdf.bits.f);
+	}
+
 	hlist_add_head(&vdev->link, &vpci->vdevs_hlist_heads[hash64(dev_config->vbdf.value, VDEV_LIST_HASHBITS)]);
 	if (dev_config->vdev_ops != NULL) {
+		pr_acrnlog("(1): vdev_ops != NULL.\n" );
 		vdev->vdev_ops = dev_config->vdev_ops;
 	} else {
 		if (get_highest_severity_vm(false) == vpci2vm(vpci)) {
+			pr_acrnlog("(2): get_highest_severity_vm(false) == vpci2vm(vpci).\n");
+
+#if 0
 			vdev->vdev_ops = &pci_pt_dev_ops;
+#else
+			if (dev_config->emu_type == PCI_DEV_TYPE_VROOT_PORT)
+			{
+				ASSERT(upstream != NULL, "Didn't find pdev backend of virtual root port.\n");
+				dev_config->pdev = upstream;
+				vdev->pdev = upstream;
+				vdev->vdev_ops = &vroot_port_ops;
+			}
+			else
+			{
+				//bogus.  test only
+				if (dev_config->vbdf.bits.b == 1 && dev_config->vbdf.bits.d == 0 && dev_config->vbdf.bits.f == 0)
+					upstream = vdev->pdev->upstream;
+
+				vdev->vdev_ops = &pci_pt_dev_ops;
+			}
+#endif
 		} else {
-			if (is_bridge(vdev->pdev)) {
+			pr_acrnlog("(3): get_highest_severity_vm(false) != vpci2vm(vpci).\n");
+			if (dev_config->emu_type == PCI_DEV_TYPE_VROOT_PORT) {
+				vdev->vdev_ops =&vroot_port_ops;
+			} else if (is_bridge(vdev->pdev)) {
+				//pr_acrnlog("(3).1 - bridge.\n");
 				vdev->vdev_ops = &vpci_bridge_ops;
 			} else if (is_host_bridge(vdev->pdev)) {
+				//pr_acrnlog("(3).2 - host_bridge.\n");
 				vdev->vdev_ops = &vhostbridge_ops;
 			} else {
+				//pr_acrnlog("(3).3: pt_dev.\n");
 				vdev->vdev_ops = &pci_pt_dev_ops;
 			}
 		}
 
-		ASSERT(dev_config->emu_type == PCI_DEV_TYPE_PTDEV,
-			"Only PCI_DEV_TYPE_PTDEV could not configure vdev_ops");
-		ASSERT(dev_config->pdev != NULL, "PCI PTDev is not present on platform!");
+		// ASSERT(dev_config->emu_type == PCI_DEV_TYPE_PTDEV,
+		// 	"Only PCI_DEV_TYPE_PTDEV could not configure vdev_ops");
+		//ASSERT(dev_config->pdev != NULL, "PCI PTDev is not present on platform!");
 	}
 
 	vdev->vdev_ops->init_vdev(vdev);
 
+	//pr_acrnlog("%s exit.\n", __func__);
+
 	return vdev;
 }
+
+// static void vpci_create_vbridge(struct acrn_vpci *vpci, struct pci_pdev *pdev, st)
+// {
+// 	struct pci_vdev vdev;
+// 	//if (vdev->pdev->ptm.is_capable)
+// 	//if (dev_config->vbdf.bits.b == 0 && dev_config->vbdf.bits.d == 3 && dev_config->vbdf.bits.f == 0)
+// 	{
+// 		vdev.vpci = vpci;
+// 		vdev.bdf.bits.b = 0;
+// 		vdev.bdf.bits.d = 4;
+// 		vdev.bdf.bits.f = 0;
+// 		vdev.pdev = vdev->pdev->upstream;
+
+// 		if (vdev.pdev != NULL)
+// 			pr_acrnlog("vbridge: pbdf=%x:%x.%x\n", vdev->pdev->upstream->bdf.bits.b, vdev->pdev->upstream->bdf.bits.d, vdev->pdev->upstream->bdf.bits.f);
+
+// 		vdev.pci_dev_config = dev_config;
+			
+// 		vdev.vdev_ops = &vpci_simple_bridge_ops;
+// 		vdev.vdev_ops->init_vdev(&vdev); 
+// 		vpci->pci_vdev_cnt++;
+// 	}
+// }
 
 /**
  * @pre vm != NULL
@@ -655,7 +719,12 @@ static void vpci_init_vdevs(struct acrn_vm *vm)
 	uint32_t idx;
 	struct acrn_vpci *vpci = &(vm->vpci);
 	const struct acrn_vm_config *vm_config = get_vm_config(vpci2vm(vpci)->vm_id);
+	//TODO: 
+	//pr_acrnlog("%s: %s, pci_dev_num=%d, VM0_CONFIG_PCI_DEV_NUM=%d.\n", __func__, vm_config->name, vm_config->pci_dev_num, VM0_CONFIG_PCI_DEV_NUM);
+	pr_acrnlog("%s: %s, vm_config->pci_dev_num=%d, vpci->pci_vdev_cnt=%d, VM0_CONFIG_PCI_DEV_NUM is NOT available.\n", __func__, 
+			vm_config->name, vm_config->pci_dev_num, vpci->pci_vdev_cnt);
 
+	//for (idx = 0U; idx < VM0_CONFIG_PCI_DEV_NUM; idx++) {
 	for (idx = 0U; idx < vm_config->pci_dev_num; idx++) {
 		/* the vdev whose vBDF is unassigned will be created by hypercall */
 		if ((!is_postlaunched_vm(vm)) || (vm_config->pci_devs[idx].vbdf.value != UNASSIGNED_VBDF)) {
@@ -683,6 +752,7 @@ int32_t vpci_assign_pcidev(struct acrn_vm *tgt_vm, struct acrn_assign_pcidev *pc
 	sos_vm = get_sos_vm();
 	spinlock_obtain(&sos_vm->vpci.lock);
 	vdev_in_sos = pci_find_vdev(&sos_vm->vpci, bdf);
+
 	if ((vdev_in_sos != NULL) && (vdev_in_sos->user == vdev_in_sos) &&
 			(vdev_in_sos->pdev != NULL) &&
 			!is_host_bridge(vdev_in_sos->pdev) && !is_bridge(vdev_in_sos->pdev)) {
@@ -703,6 +773,12 @@ int32_t vpci_assign_pcidev(struct acrn_vm *tgt_vm, struct acrn_assign_pcidev *pc
 
 		spinlock_obtain(&tgt_vm->vpci.lock);
 		vdev = vpci_init_vdev(vpci, vdev_in_sos->pci_dev_config, vdev_in_sos->phyfun);
+
+		pr_acrnlog("%s - vm[%d]: pcidev [%x:%x.%x->%x:%x.%x], vdev_in_sos[%x:%x.%x->%x:%x.%x], vdev[%x:%x.%x->%x:%x.%x] \n", __func__, tgt_vm->vm_id,
+			pcidev->phys_bdf >> 8U, (pcidev->phys_bdf >> 3U) & 0x1fU, pcidev->phys_bdf & 0x7U, pcidev->virt_bdf >> 8U, (pcidev->virt_bdf >> 3U) & 0x1fU, pcidev->virt_bdf & 0x7U,
+			vdev_in_sos->pdev->bdf.bits.b, vdev_in_sos->pdev->bdf.bits.d, vdev_in_sos->pdev->bdf.bits.f, vdev_in_sos->bdf.bits.b, vdev_in_sos->bdf.bits.d, vdev_in_sos->bdf.bits.f,
+			vdev->pdev->bdf.bits.b, vdev->pdev->bdf.bits.d, vdev->pdev->bdf.bits.f, vdev->bdf.bits.b, vdev->bdf.bits.d, vdev->bdf.bits.f);
+
 		pci_vdev_write_vcfg(vdev, PCIR_INTERRUPT_LINE, 1U, pcidev->intr_line);
 		pci_vdev_write_vcfg(vdev, PCIR_INTERRUPT_PIN, 1U, pcidev->intr_pin);
 		for (idx = 0U; idx < vdev->nr_bars; idx++) {

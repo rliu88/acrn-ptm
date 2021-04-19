@@ -46,7 +46,8 @@
 #include "pci_core.h"
 #include "acpi.h"
 #include "dm.h"
-
+#include "ptm.h"
+#include "passthru.h"
 
 /* Some audio drivers get topology data from ACPI NHLT table.
  * For such drivers, we need to copy the host NHLT table to make it
@@ -104,32 +105,6 @@ extern uint64_t audio_nhlt_len;
 /* reference count for libpciaccess init/deinit */
 static int pciaccess_ref_cnt;
 static pthread_mutex_t ref_cnt_mtx = PTHREAD_MUTEX_INITIALIZER;
-
-
-struct passthru_dev {
-	struct pci_vdev *dev;
-	struct pcibar bar[PCI_BARMAX + 1];
-	struct {
-		int		capoff;
-	} msi;
-	struct {
-		int		capoff;
-	} msix;
-	struct {
-		int 		capoff;
-	} pmcap;
-	bool pcie_cap;
-	struct pcisel sel;
-	int phys_pin;
-	uint16_t phys_bdf;
-	struct pci_device *phys_dev;
-	/* Options for passthrough device:
-	 *   need_reset - reset dev before passthrough
-	 */
-	bool need_reset;
-	bool d3hot_reset;
-	bool (*has_virt_pcicfg_regs)(int offset);
-};
 
 static uint32_t
 read_config(struct pci_device *phys_dev, long reg, int width)
@@ -586,7 +561,7 @@ parse_vmsix_on_msi_bar_id(char *s, int *id, int base)
 static int
 passthru_init(struct vmctx *ctx, struct pci_vdev *dev, char *opts)
 {
-	int bus, slot, func, idx, error;
+	int bus, slot, func, idx, error, vrp_sec_bus;
 	struct passthru_dev *ptdev;
 	struct pci_device_iterator *iter;
 	struct pci_device *phys_dev;
@@ -595,11 +570,14 @@ passthru_init(struct vmctx *ctx, struct pci_vdev *dev, char *opts)
 	bool need_reset = true;
 	bool d3hot_reset = false;
 	int vmsix_on_msi_bar_id = -1;
+	bool enable_ptm = false;
 	struct acrn_assign_pcidev pcidev = {};
 	uint16_t vendor = 0, device = 0;
 
 	ptdev = NULL;
 	error = -EINVAL;
+
+	pr_notice("<PTM>: %s enter: opts=%s.\n", __func__, opts);
 
 	if (opts == NULL) {
 		pr_err("Empty passthru options\n");
@@ -612,12 +590,15 @@ passthru_init(struct vmctx *ctx, struct pci_vdev *dev, char *opts)
 		return -EINVAL;
 	}
 
+	pr_notice("<PTM>: %s bus=0x%x, slot=0x%x, func=0x%x.\n", __func__, bus, slot, func);
+	
 	if (is_rtvm && (PCI_BDF(bus, slot, func) == PCI_BDF_GPU)) {
 		pr_err("%s RTVM doesn't support GVT-D.", __func__);
 		return -EINVAL;
 	}
 
 	while ((opt = strsep(&opts, ",")) != NULL) {
+		pr_notice("<PTM>: opt=%s.\n", opt);
 		if (!strncmp(opt, "keep_gsi", 8))
 			keep_gsi = true;
 		else if (!strncmp(opt, "no_reset", 8))
@@ -634,7 +615,10 @@ passthru_init(struct vmctx *ctx, struct pci_vdev *dev, char *opts)
 				pr_err("faild to parse msix emulation bar id");
 				return -EINVAL;
 			}
-
+		} else if (!strncmp(opt, "enable_ptm", 10)) {
+			pr_notice("<PTM>: opt=enable_ptm.\n");
+			enable_ptm = true;
+			break;
 		} else
 			pr_warn("Invalid passthru options:%s", opt);
 	}
@@ -740,6 +724,24 @@ passthru_init(struct vmctx *ctx, struct pci_vdev *dev, char *opts)
 		}
 	}
 
+	if (enable_ptm) {
+		error = ptm_probe(ctx, ptdev, &vrp_sec_bus);
+
+		if (!error) {
+			/* if ptm is enabled, ptm capable ptdev is connected to virtual root port which acts as ptm root, 
+			 * instead of host bridge. and it is the only device connect to that virtual root port. */
+			if (vrp_sec_bus > 0) {
+				pcidev.virt_bdf = PCI_BDF(vrp_sec_bus, 0, 0);
+			}
+		}
+		else {
+			enable_ptm = false;
+			pr_err("%s: Failed to enable PTM on passthrough device %x:%x:%x.\n", __func__, bus, slot, func);
+		}
+
+		pr_info("%s: ptm_probe error=%d, vrp_sec_bus =0x%x, pcidev->virt_bdf=0x%x.\n", __func__, error, vrp_sec_bus, pcidev.virt_bdf);
+	}
+
 	pcidev.intr_line = pci_get_cfgdata8(dev, PCIR_INTLINE);
 	pcidev.intr_pin = pci_get_cfgdata8(dev, PCIR_INTPIN);
 	error = vm_assign_pcidev(ctx, &pcidev);
@@ -747,6 +749,8 @@ done:
 	if (error && (ptdev != NULL)) {
 			free(ptdev);
 	}
+
+	pr_notice("<PTM>: %s exit.\n", __func__);
 	return error;
 }
 

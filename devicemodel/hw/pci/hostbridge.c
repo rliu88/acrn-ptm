@@ -31,6 +31,8 @@
 static int
 pci_hostbridge_init(struct vmctx *ctx, struct pci_vdev *pi, char *opts)
 {
+	pr_notice("%s enter.\n", __func__);
+
 	/* config space */
 	pci_set_cfgdata16(pi, PCIR_VENDOR, 0x1275);	/* NetApp */
 	pci_set_cfgdata16(pi, PCIR_DEVICE, 0x1275);	/* NetApp */
@@ -40,6 +42,7 @@ pci_hostbridge_init(struct vmctx *ctx, struct pci_vdev *pi, char *opts)
 
 	pci_emul_add_pciecap(pi, PCIEM_TYPE_ROOT_PORT);
 
+	pr_notice("%s exit.\n", __func__);
 	return 0;
 }
 

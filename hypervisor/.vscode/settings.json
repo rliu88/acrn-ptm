@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "vm.h": "c",
+        "vcpu.h": "c",
+        "vlapic.h": "c",
+        "page.h": "c"
+    }
+}

@@ -46,6 +46,7 @@
 #include <platform_acpi_info.h>
 #include <hash.h>
 #include <util.h>
+#include <logmsg.h>
 
 #define PDEV_HLIST_HASHBITS 6U
 #define PDEV_HLIST_HASHSIZE (1U << PDEV_HLIST_HASHBITS)
@@ -355,11 +356,11 @@ static bool is_hv_owned_pdev(union pci_bdf pbdf)
 	return hidden;
 }
 
-static struct pci_pdev *pci_init_pdev(union pci_bdf pbdf, uint32_t drhd_index)
+static struct pci_pdev *pci_init_pdev(union pci_bdf pbdf, uint32_t drhd_index, struct pci_pdev* upstream)
 {
 	struct pci_pdev *pdev = NULL;
 	if (!is_hv_owned_pdev(pbdf)) {
-		pdev = init_pdev(pbdf.value, drhd_index);
+		pdev = init_pdev(pbdf.value, drhd_index, upstream);
 	}
 	return pdev;
 }
@@ -391,6 +392,7 @@ struct pci_bdf_mapping_group {
 struct pci_bus_num_to_drhd_index_mapping {
 	uint8_t bus_under_scan;
 	uint32_t bus_drhd_index;
+	struct pci_pdev* upstream;
 };
 
 static uint32_t pci_check_override_drhd_index(union pci_bdf pbdf,
@@ -419,6 +421,9 @@ static uint32_t pci_check_override_drhd_index(union pci_bdf pbdf,
  * capabilities) before using this pdev, it needs to use the pdev to initialize a per VM device
  * configuration(acrn_vm_pci_dev_config), call init_one_dev_config or init_all_dev_config to do this.
  */
+#define pci_printf(bus, f_, ...) \
+	do {if ((bus==0) || (bus==1)) printf(f_, __VA_ARGS__);} while(0)
+
 static void scan_pci_hierarchy(uint8_t bus, uint64_t buses_visited[BUSES_BITMAP_LEN],
 		const struct pci_bdf_mapping_group *const bdfs_from_drhds, uint32_t drhd_index)
 {
@@ -428,16 +433,20 @@ static void scan_pci_hierarchy(uint8_t bus, uint64_t buses_visited[BUSES_BITMAP_
 	uint8_t current_bus_index;
 	uint32_t current_drhd_index, bdf_drhd_index;
 	struct pci_pdev *pdev;
+	struct pci_pdev *current_upstream;
 
 	struct pci_bus_num_to_drhd_index_mapping bus_map[PCI_BUSMAX + 1U]; /* FIFO queue of buses to walk */
 	uint32_t s = 0U, e = 0U; /* start and end index into queue */
 
 	bus_map[e].bus_under_scan = bus;
 	bus_map[e].bus_drhd_index = drhd_index;
+	bus_map[e].upstream = NULL; /*The caller has no upstream device, so the upstream point is NULL*/
 	e = e + 1U;
+	pci_printf(bus, "%s enter, bus=%u\n", __func__, bus);
 	while (s < e) {
 		current_bus_index = bus_map[s].bus_under_scan;
 		current_drhd_index = bus_map[s].bus_drhd_index;
+		current_upstream = bus_map[s].upstream;
 		s = s + 1U;
 
 		bitmap_set_nolock(current_bus_index,
@@ -469,17 +478,33 @@ static void scan_pci_hierarchy(uint8_t bus, uint64_t buses_visited[BUSES_BITMAP_
 
 				bdf_drhd_index = pci_check_override_drhd_index(pbdf, bdfs_from_drhds,
 									current_drhd_index);
-				pdev = pci_init_pdev(pbdf, bdf_drhd_index);
+
+				printf(">bdf: %x:%x.%x, bdf_drhd_index: %u\n", current_bus_index, dev, func, bdf_drhd_index);
+
+				pdev = pci_init_pdev(pbdf, bdf_drhd_index, current_upstream);
+
+				if (pdev != NULL)
+					printf(">>pdev: type=%x, bclass=%x, sclass=%x, is_bdg=%u\n", pdev->hdr_type, pdev->base_class, pdev->sub_class, is_bridge(pdev));
+
+				if (current_upstream != NULL)
+				{
+					printf(">>current_upstream bdf: %x:%x.%x, type=%x, bclass=%x, sclass=%x, is_bdg=%u\n", 
+						current_upstream->bdf.bits.b, current_upstream->bdf.bits.d, current_upstream->bdf.bits.f, 
+						current_upstream->hdr_type, current_upstream->base_class, current_upstream->sub_class, is_bridge(current_upstream));
+				}
+
 				/* NOTE: This touch logic change: if a bridge own by HV as its children */
 				if ((pdev != NULL) && is_bridge(pdev)) {
 					bus_map[e].bus_under_scan =
 						(uint8_t)pci_pdev_read_cfg(pbdf, PCIR_SECBUS_1, 1U);
 					bus_map[e].bus_drhd_index = bdf_drhd_index;
+					bus_map[e].upstream = pdev;
 					e = e + 1U;
 				}
 			}
 		}
 	}
+	pci_printf(bus, "%s exit.\n", __func__);
 }
 
 /*
@@ -673,20 +698,75 @@ static inline uint32_t pci_pdev_get_nr_bars(uint8_t hdr_type)
 /**
  * @pre pdev != NULL
  */
+static void pci_pdev_enable_ptm(struct pci_pdev *pdev){
+       uint32_t ctrl;
+       struct pci_pdev * upstream = pdev->upstream;
+
+	   printf("%s: device: %x:%x.%x, upstream: %x:%x.%x\n", __func__, pdev->bdf.bits.b, pdev->bdf.bits.d, pdev->bdf.bits.f,
+	   					upstream->bdf.bits.b, upstream->bdf.bits.d, upstream->bdf.bits.f);
+
+       if (upstream && upstream->ptm.is_enabled) {
+               ctrl = PCIM_PTM_CTRL_ENABLED;
+               pdev->ptm.ptm_root_pbdf = upstream->ptm.ptm_root_pbdf;
+               if (upstream->ptm.effective_granularity == 0)
+                       pdev->ptm.effective_granularity = 0;
+               else if (  upstream->ptm.effective_granularity > pdev->ptm.local_granularity)
+                       pdev->ptm.effective_granularity = upstream->ptm.effective_granularity;
+               else
+                       pdev->ptm.effective_granularity = pdev->ptm.local_granularity;
+       }
+       else if ( pdev->ptm.is_root_capable ) {
+                       ctrl = PCIM_PTM_CTRL_ENABLED | PCIM_PTM_CTRL_ROOT_SELECTED;
+                       pdev->ptm.is_root = true;
+                       pdev->ptm.effective_granularity = pdev->ptm.local_granularity;
+                       pdev->ptm.ptm_root_pbdf = pdev->bdf;
+       }
+       else
+               return;
+
+       ctrl |= pdev->ptm.effective_granularity << 8;
+       pci_pdev_write_cfg(pdev->bdf, pdev->ptm.capoff + PCIR_PTM_CTRL, 4, ctrl);
+       pdev->ptm.is_enabled = true;
+}
+
+/**
+ * @pre pdev != NULL
+ */
 static void pci_enumerate_ext_cap(struct pci_pdev *pdev) {
 
 	uint32_t hdr, pos, pre_pos = 0U;
+	uint8_t pcie_dev_type;
+	uint32_t cap;
 
 	pos = PCI_ECAP_BASE_PTR;
 
 	/* PCI Express Extended Capability must have 4 bytes header */
 	hdr = pci_pdev_read_cfg(pdev->bdf, pos, 4U);
 	while (hdr != 0U) {
+		printf(">>>bdf: %x:%x.%x ext_cap_value=%x, ext_cap_id=%x\n", pdev->bdf.bits.b, pdev->bdf.bits.d, pdev->bdf.bits.f, hdr, PCI_ECAP_ID(hdr));
 		if (PCI_ECAP_ID(hdr) == PCIZ_SRIOV) {
 			pdev->sriov.capoff = pos;
 			pdev->sriov.caplen = PCI_SRIOV_CAP_LEN;
 			pdev->sriov.pre_pos = pre_pos;
 		}
+		else if (PCI_ECAP_ID(hdr) == PCIZ_PTM) {
+			pdev->ptm.capoff = pos;
+			pdev->ptm.caplen = PCI_PTM_CAP_LEN;
+			pdev->ptm.is_capable = true;
+			cap = pci_pdev_read_cfg(pdev->bdf, pdev->ptm.capoff + PCIR_PTM_CAP, PCI_PTM_CAP_LEN);
+			pdev->ptm.is_root_capable = ( bool )(cap & PCIM_PTM_CAP_ROOT_CAPABLE);
+			pdev->ptm.local_granularity = (uint8_t)((cap & 0x0000FF00U) >> 8);
+
+			//enable PTM for the pdev if it is a non-endpoint
+			pcie_dev_type = ((uint8_t)pci_pdev_read_cfg(pdev->bdf, pdev->pcie_capoff + PCIER_FLAGS, 1)) & 0xF0U;
+			printf(">>>>%x:%x.%x is PTM capable: offset=%u, root_capable=%u, local_granularity=%u, dev_type=%u\n",
+				pdev->bdf.bits.b, pdev->bdf.bits.d, pdev->bdf.bits.f, pdev->ptm.capoff, pdev->ptm.caplen, pdev->ptm.is_root_capable, 
+				pdev->ptm.local_granularity, pcie_dev_type);
+			
+			if( pcie_dev_type != PCIEM_TYPE_ENDPOINT && pcie_dev_type != PCIEM_TYPE_ROOT_INT_EP)
+				pci_pdev_enable_ptm(pdev);
+		}
+
 		pre_pos = pos;
 		pos = PCI_ECAP_NEXT(hdr);
 		if (pos == 0U) {
@@ -755,6 +835,7 @@ static void pci_enumerate_cap(struct pci_pdev *pdev)
 	}
 
 	if (is_pcie) {
+		printf(">>%x:%x.%x is pcie.  Call enumerate_ext_cap().\n", pdev->bdf.bits.b, pdev->bdf.bits.d, pdev->bdf.bits.f);
 		pci_enumerate_ext_cap(pdev);
 	}
 }
@@ -770,7 +851,7 @@ static void pci_enumerate_cap(struct pci_pdev *pdev)
  *
  * @return If there's a successfully initialized pdev return it, otherwise return NULL;
  */
-struct pci_pdev *init_pdev(uint16_t pbdf, uint32_t drhd_index)
+struct pci_pdev *init_pdev(uint16_t pbdf, uint32_t drhd_index, struct pci_pdev* upstream)
 {
 	uint8_t hdr_type, hdr_layout;
 	union pci_bdf bdf;
@@ -788,6 +869,7 @@ struct pci_pdev *init_pdev(uint16_t pbdf, uint32_t drhd_index)
 			pdev->base_class = (uint8_t)pci_pdev_read_cfg(bdf, PCIR_CLASS, 1U);
 			pdev->sub_class = (uint8_t)pci_pdev_read_cfg(bdf, PCIR_SUBCLASS, 1U);
 			pdev->nr_bars = pci_pdev_get_nr_bars(hdr_type);
+			pdev->upstream = upstream;
 			if (hdr_layout == PCIM_HDRTYPE_NORMAL) {
 				pdev_save_bar(pdev);
 			}

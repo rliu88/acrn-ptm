@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "pciio.h": "c",
+        "acpi.h": "c",
+        "pci_core.h": "c",
+        "type_traits": "cpp",
+        "uart_core.h": "c",
+        "vmmapi.h": "c"
+    }
+}

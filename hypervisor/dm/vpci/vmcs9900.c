@@ -175,6 +175,9 @@ int32_t create_vmcs9900_vdev(struct acrn_vm *vm, struct acrn_emul_dev *dev)
 	int32_t ret = -EINVAL;
 	uint16_t vuart_idx = *((uint16_t*)(dev->args));
 
+	pr_acrnlog("%s enter: pci_dev_num=%d, vpci.pci_vdev_cnt = %d, array size of vpci->vdevs = %d.\n", __func__, vm_config->pci_dev_num, 
+							vm->vpci.pci_vdev_cnt, sizeof(vm->vpci.pci_vdevs)/sizeof(struct pci_vdev));
+	
 	for (i = 0U; i < vm_config->pci_dev_num; i++) {
 		dev_config = &vm_config->pci_devs[i];
 		if (dev_config->vuart_idx == vuart_idx) {
@@ -190,6 +193,8 @@ int32_t create_vmcs9900_vdev(struct acrn_vm *vm, struct acrn_emul_dev *dev)
 	if (ret != 0) {
 		pr_err("Unsupport: create VM%d vuart_idx=%d", vm->vm_id, vuart_idx);
 	}
+
+	pr_acrnlog("%s: exit.\n", __func__);
 
 	return ret;
 }

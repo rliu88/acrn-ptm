@@ -129,7 +129,6 @@ def generate_file(vm_info, config):
     print("#include <vbar_base.h>", file=config)
     print("#include <mmu.h>", file=config)
     print("#include <page.h>", file=config)
-    print("#include <vroot_port.h>", file=config)
     if pci_vuart_enabled:
         print("#include <vmcs9900.h>", file=config)
     # Insert header for share memory
@@ -170,19 +169,6 @@ def generate_file(vm_info, config):
             continue
 
         pci_cnt = 1
-
-        if scenario_cfg_lib.VM_DB[vm_type]['load_type'] == "POST_LAUNCHED_VM":
-            pciVRootPort = True
-            vroot_port_id = 1
-            if pciVRootPort:
-                print("\t{", file=config)
-                print("\t\t.emu_type = {},".format(PCI_DEV_TYPE[2]), file=config)
-                print("\t\t.vbdf.value = UNASSIGNED_VBDF,", file=config)
-                print("\t\t.vroot_port_idx = {:1d},".format(vroot_port_id), file=config)
-                print("\t\t.vdev_ops = &vroot_port_ops,", file=config)
-                print("\t},", file=config)
-                pci_cnt += 1
-
         # Insert device structure and bracket
         print("", file=config)
         if scenario_cfg_lib.VM_DB[vm_type]['load_type'] == "SOS_VM":
@@ -236,16 +222,14 @@ def generate_file(vm_info, config):
                     vm_used_bdf.append(bdf_tuple)
                     pci_cnt += 1
 
-        # Insert virtual root ports for ptm
+        # Insert a simple bridge for ptm
         if scenario_cfg_lib.VM_DB[vm_type]['load_type'] == "PRE_LAUNCHED_VM":
-            pciVRootPort = True
-            if pciVRootPort:
+            pciSimplebridge = True
+            if pciSimplebridge:
                 print("\t{", file=config)
                 print("\t\t.emu_type = {},".format(PCI_DEV_TYPE[2]), file=config)
-                print("\t\t.vbdf.value = UNASSIGNED_VBDF,", file=config)
-                print("\t\t.vdev_ops = &vroot_port_ops,", file=config)
+                print("\t\t.vbdf.bits = {{.b = 0x00U, .d = 0x{0:02x}U, .f = 0x00U}}," .format(pci_cnt), file=config)
                 print("\t},", file=config)
-                pci_cnt += 1
 
         # Insert ivshmem information
         if vm_info.shmem.shmem_enabled == 'y' and vm_i in vm_info.shmem.shmem_regions \
